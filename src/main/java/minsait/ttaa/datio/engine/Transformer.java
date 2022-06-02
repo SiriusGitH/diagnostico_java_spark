@@ -14,6 +14,7 @@ import static minsait.ttaa.datio.common.naming.PlayerOutput.*;
 import static org.apache.spark.sql.functions.*;
 
 public class Transformer extends Writer {
+
     private SparkSession spark;
 
     public Transformer(@NotNull SparkSession spark) {
@@ -23,7 +24,12 @@ public class Transformer extends Writer {
         df.printSchema();
 
         df = cleanData(df);
-        df = exampleWindowFunction(df);
+        //df = exampleWindowFunction(df);
+        df = ageRange(df);
+        df = nationalityPosition(df);
+        df = potentialDivOverall(df);
+        df = dataFiltration(df);
+
         df = columnSelection(df);
 
         // for show 100 records after your transformations and show the Dataset schema
@@ -31,16 +37,26 @@ public class Transformer extends Writer {
         df.printSchema();
 
         // Uncomment when you want write your final output
-        //write(df);
+        write(df);
     }
 
     private Dataset<Row> columnSelection(Dataset<Row> df) {
         return df.select(
+
                 shortName.column(),
-                overall.column(),
+                longName.column(),
+                age.column(),
                 heightCm.column(),
+                weightKg.column(),
+                nationality.column(),
+                clubName.column(),
+                overall.column(),
+                potential.column(),
                 teamPosition.column(),
-                catHeightByPosition.column()
+                ageRange.column(),
+                rankByNationalityPosition.column(),
+                potentialVsOverall.column()
+                //catHeightByPosition.column()
         );
     }
 
@@ -80,6 +96,8 @@ public class Transformer extends Writer {
      * cat B for if is in 50 players tallest
      * cat C for the rest
      */
+
+    /*
     private Dataset<Row> exampleWindowFunction(Dataset<Row> df) {
         WindowSpec w = Window
                 .partitionBy(teamPosition.column())
@@ -94,9 +112,58 @@ public class Transformer extends Writer {
         df = df.withColumn(catHeightByPosition.getName(), rule);
 
         return df;
+    }*/
+
+
+    private Dataset<Row> ageRange(Dataset<Row> df){
+
+        Column rule = when(age.column().$less(23), "A")
+                .when(age.column().$less(27), "B")
+                .when(age.column().$less(32), "C")
+                .when(age.column().$greater$eq(32), "D");
+
+        df = df.withColumn(ageRange.getName(), rule);
+
+        return df;
+
     }
 
 
+    private Dataset<Row> nationalityPosition(Dataset<Row> df){
 
+        WindowSpec w = Window
+                .partitionBy(nationality.column(),overall.column())
+                .orderBy(overall.column().desc());
+
+        Column value = row_number().over(w);
+
+        df = df.withColumn(rankByNationalityPosition.getName(), value);
+
+        return df;
+
+    }
+
+
+    private Dataset<Row> potentialDivOverall (Dataset<Row> df){
+
+        Column value = potential.column().$div(overall.column());
+
+        df = df.withColumn(potentialVsOverall.getName(),value);
+
+        return df;
+
+    }
+
+
+    private Dataset<Row> dataFiltration (Dataset<Row> df){
+
+        df = df.filter((rankByNationalityPosition.column().$less(3))
+                .or((ageRange.column().$eq$eq$eq('B').or(ageRange.column().$eq$eq$eq('C'))).and(potentialVsOverall.column().$greater(1.15)))
+                .or(ageRange.column().$eq$eq$eq('A').and(potentialVsOverall.column().$greater(1.25)))
+                .or(ageRange.column().$eq$eq$eq('D').and(rankByNationalityPosition.column().$less(5))));
+
+        return df;
+
+    }
 
 }
